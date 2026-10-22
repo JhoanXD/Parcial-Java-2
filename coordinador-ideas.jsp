@@ -51,6 +51,8 @@
         </c:when>
         <c:otherwise>
           <c:set var="updatedRequest" value="0" />
+          <c:set var="updatedIdea" value="0" />
+          <c:set var="assignedDirector" value="0" />
           <c:set var="assignedEvaluator" value="0" />
           <c:set var="requestOwnProposal" value="false" />
           <c:catch var="requestReviewFailure">
@@ -72,6 +74,105 @@
               <c:if test="${not empty requestForReview.rows}">
                 <c:set var="requestOwnProposal" value="${requestForReview.rows[0].tipo eq 'estudiantil' and requestForReview.rows[0].proponente_id eq requestForReview.rows[0].estudiante_id and requestForReview.rows[0].idea_estado ne 'aprobada'}" />
                 <c:choose>
+                  <c:when test="${param.decision eq 'aprobada' and requestOwnProposal and requestForReview.rows[0].estado eq 'pendiente'}">
+                    <c:if test="${not empty param.directorId and not empty param.evaluatorId and param.directorId ne param.evaluatorId}">
+                      <sql:query var="selectedProposalDirector">
+                        SELECT d.usuario_id
+                        FROM docentes d
+                        JOIN usuarios u ON u.id=d.usuario_id AND u.estado='activo'
+                        JOIN usuario_roles ur ON ur.usuario_id=u.id
+                        JOIN roles r ON r.id=ur.rol_id AND r.nombre='docente'
+                        WHERE d.usuario_id=?
+                        <sql:param value="${param.directorId}" />
+                      </sql:query>
+                      <sql:query var="selectedProposalEvaluator">
+                        SELECT d.usuario_id
+                        FROM docentes d
+                        JOIN usuarios u ON u.id=d.usuario_id AND u.estado='activo'
+                        JOIN usuario_roles ur ON ur.usuario_id=u.id
+                        JOIN roles r ON r.id=ur.rol_id AND r.nombre='docente'
+                        WHERE d.usuario_id=? AND d.usuario_id<>?
+                        <sql:param value="${param.evaluatorId}" />
+                        <sql:param value="${param.directorId}" />
+                      </sql:query>
+                      <c:if test="${not empty selectedProposalDirector.rows and not empty selectedProposalEvaluator.rows}">
+                        <sql:update var="assignedDirector">
+                          INSERT INTO direcciones_ideas (idea_id,director_id,asignado_por)
+                          SELECT i.id,d.usuario_id,?
+                          FROM solicitudes_ideas s
+                          JOIN ideas i ON i.id=s.idea_id
+                          JOIN docentes d ON d.usuario_id=?
+                          JOIN usuarios u ON u.id=d.usuario_id AND u.estado='activo'
+                          JOIN usuario_roles ur ON ur.usuario_id=u.id
+                          JOIN roles r ON r.id=ur.rol_id AND r.nombre='docente'
+                          WHERE s.id=? AND s.estado='pendiente' AND s.pago_verificado=0
+                            AND i.tipo='estudiantil' AND i.proponente_id=s.estudiante_id
+                            AND i.estado IN ('pendiente_revision','en_revision')
+                          ON DUPLICATE KEY UPDATE director_id=VALUES(director_id),
+                            asignado_por=VALUES(asignado_por),asignado_en=CURRENT_TIMESTAMP
+                          <sql:param value="${sessionScope.userId}" />
+                          <sql:param value="${param.directorId}" />
+                          <sql:param value="${param.requestId}" />
+                        </sql:update>
+                        <c:if test="${assignedDirector ge 1}">
+                          <sql:update var="assignedEvaluator">
+                            INSERT INTO evaluadores_ideas (idea_id,evaluador_id,asignado_por)
+                            SELECT i.id,d.usuario_id,?
+                            FROM solicitudes_ideas s
+                            JOIN ideas i ON i.id=s.idea_id
+                            JOIN docentes d ON d.usuario_id=?
+                            JOIN usuarios u ON u.id=d.usuario_id AND u.estado='activo'
+                            JOIN usuario_roles ur ON ur.usuario_id=u.id
+                            JOIN roles r ON r.id=ur.rol_id AND r.nombre='docente'
+                            JOIN direcciones_ideas director ON director.idea_id=i.id
+                            WHERE s.id=? AND s.estado='pendiente' AND s.pago_verificado=0
+                              AND i.tipo='estudiantil' AND i.proponente_id=s.estudiante_id
+                              AND i.estado IN ('pendiente_revision','en_revision')
+                              AND director.director_id<>d.usuario_id
+                            ON DUPLICATE KEY UPDATE evaluador_id=VALUES(evaluador_id),
+                              asignado_por=VALUES(asignado_por),asignado_en=CURRENT_TIMESTAMP
+                            <sql:param value="${sessionScope.userId}" />
+                            <sql:param value="${param.evaluatorId}" />
+                            <sql:param value="${param.requestId}" />
+                          </sql:update>
+                        </c:if>
+                        <c:if test="${assignedDirector ge 1 and assignedEvaluator ge 1}">
+                          <sql:update var="updatedIdea">
+                            UPDATE ideas SET estado='aprobada',revisada_en=NOW(),aprobada_en=NOW()
+                            WHERE id=? AND tipo='estudiantil' AND estado IN ('pendiente_revision','en_revision')
+                              AND EXISTS (
+                                SELECT 1 FROM solicitudes_ideas s
+                                WHERE s.id=? AND s.idea_id=ideas.id AND s.estudiante_id=ideas.proponente_id
+                                  AND s.estado='pendiente' AND s.pago_verificado=0
+                              )
+                            <sql:param value="${requestForReview.rows[0].idea_id}" />
+                            <sql:param value="${param.requestId}" />
+                          </sql:update>
+                        </c:if>
+                        <c:if test="${updatedIdea eq 1}">
+                          <sql:update var="updatedRequest">
+                            UPDATE solicitudes_ideas
+                            SET estado='aprobada',pago_verificado=1,
+                                respuesta=COALESCE(NULLIF(?,''),'Propuesta aprobada y asignados director y evaluador.'),
+                                respondida_por=?,respondida_en=NOW(),corregir_hasta=NULL
+                            WHERE id=? AND estado='pendiente' AND pago_verificado=0
+                            <sql:param value="${fn:trim(param.observations)}" />
+                            <sql:param value="${sessionScope.userId}" />
+                            <sql:param value="${param.requestId}" />
+                          </sql:update>
+                          <c:if test="${updatedRequest eq 1}">
+                            <sql:update>
+                              INSERT INTO revisiones_ideas (idea_id,revisor_id,decision,observaciones)
+                              VALUES (?,?, 'aprobada',NULLIF(?, ''))
+                              <sql:param value="${requestForReview.rows[0].idea_id}" />
+                              <sql:param value="${sessionScope.userId}" />
+                              <sql:param value="${fn:trim(param.observations)}" />
+                            </sql:update>
+                          </c:if>
+                        </c:if>
+                      </c:if>
+                    </c:if>
+                  </c:when>
                   <c:when test="${param.decision eq 'aprobada' and requestOwnProposal}">
                     <sql:update var="assignedEvaluator">
                       INSERT INTO evaluadores_ideas (idea_id,evaluador_id,asignado_por)
@@ -177,13 +278,19 @@
           <c:choose>
             <c:when test="${not empty requestReviewFailure}"><c:set var="flashError" value="No se pudo guardar la decisión sobre el comprobante." scope="session" /></c:when>
             <c:when test="${empty requestForReview.rows}"><c:set var="flashError" value="La solicitud ya fue revisada o no conserva la reserva de esta idea." scope="session" /></c:when>
+            <c:when test="${param.decision eq 'aprobada' and requestOwnProposal and requestForReview.rows[0].estado eq 'pendiente' and empty param.directorId}"><c:set var="flashError" value="Selecciona un docente director para aprobar la propuesta." scope="session" /></c:when>
+            <c:when test="${param.decision eq 'aprobada' and requestOwnProposal and requestForReview.rows[0].estado eq 'pendiente' and empty param.evaluatorId}"><c:set var="flashError" value="Selecciona un docente evaluador para aprobar la propuesta." scope="session" /></c:when>
+            <c:when test="${param.decision eq 'aprobada' and requestOwnProposal and requestForReview.rows[0].estado eq 'pendiente' and param.directorId eq param.evaluatorId}"><c:set var="flashError" value="El director y el evaluador deben ser docentes diferentes." scope="session" /></c:when>
+            <c:when test="${param.decision eq 'aprobada' and requestOwnProposal and requestForReview.rows[0].estado eq 'pendiente' and assignedDirector lt 1}"><c:set var="flashError" value="El director seleccionado no es válido o no tiene un perfil docente activo." scope="session" /></c:when>
+            <c:when test="${param.decision eq 'aprobada' and requestOwnProposal and requestForReview.rows[0].estado eq 'pendiente' and assignedEvaluator lt 1}"><c:set var="flashError" value="El evaluador no es válido, no tiene un perfil docente activo o coincide con el director." scope="session" /></c:when>
             <c:when test="${param.decision eq 'aprobada' and empty param.evaluatorId}"><c:set var="flashError" value="Selecciona un docente evaluador antes de verificar el pago." scope="session" /></c:when>
             <c:when test="${param.decision eq 'aprobada' and assignedEvaluator lt 1}"><c:set var="flashError" value="El evaluador no es válido, no tiene un perfil docente activo o coincide con el director de la idea." scope="session" /></c:when>
             <c:when test="${updatedRequest ne 1}"><c:set var="flashError" value="La solicitud ya fue revisada o no conserva la reserva de esta idea." scope="session" /></c:when>
             <c:when test="${param.decision eq 'rechazada' and requestOwnProposal and requestForReview.rows[0].estado eq 'retirada'}"><c:set var="flashNotice" value="El comprobante fue rechazado. La propuesta cancelada se conserva sin publicar hasta que su pago sea verificado." scope="session" /></c:when>
             <c:when test="${param.decision eq 'rechazada'}"><c:set var="flashNotice" value="Se solicitó corregir el comprobante. La idea permanecerá reservada durante 3 días." scope="session" /></c:when>
             <c:when test="${requestOwnProposal and requestForReview.rows[0].estado eq 'retirada'}"><c:set var="flashNotice" value="El comprobante quedó verificado y se asignó el evaluador. La propuesta cancelada sigue en revisión y, si se aprueba, quedará disponible en el banco." scope="session" /></c:when>
-            <c:when test="${requestOwnProposal}"><c:set var="flashNotice" value="El comprobante quedó verificado y se asignó el evaluador. La propuesta fue enviada a revisión académica." scope="session" /></c:when>
+            <c:when test="${requestOwnProposal and requestForReview.rows[0].estado eq 'pendiente'}"><c:set var="flashNotice" value="La propuesta fue aprobada, el pago verificado y se asignaron el director y el evaluador." scope="session" /></c:when>
+            <c:when test="${requestOwnProposal}"><c:set var="flashNotice" value="El comprobante quedó verificado y se asignó el evaluador. La propuesta cancelada sigue en revisión y, si se aprueba, quedará disponible en el banco." scope="session" /></c:when>
             <c:otherwise><c:set var="flashNotice" value="La idea quedó asignada al estudiante y se registró el evaluador." scope="session" /></c:otherwise>
           </c:choose>
         </c:otherwise>
@@ -619,7 +726,7 @@
         </c:if>
         <c:if test="${currentSection eq 'estudiantes'}">
         <section class="coordinator-history" id="propuestas-estudiantes" aria-labelledby="studentIdeasTitle">
-          <div class="coordinator-history-heading"><div><p class="section-overline"><span></span> PROPUESTAS ESTUDIANTILES</p><h2 id="studentIdeasTitle">Ideas propias de estudiantes</h2><p>El pago y la revisión académica se gestionan aquí; cada tarjeta indica el paso pendiente.</p></div><span class="admin-list-count"><c:out value="${fn:length(pendingStudentProposals.rows)}" /> pendientes</span></div>
+          <div class="coordinator-history-heading"><div><p class="section-overline"><span></span> PROPUESTAS ESTUDIANTILES</p><h2 id="studentIdeasTitle">Ideas propias de estudiantes</h2><p>Verifica el pago y, en la misma decisión, aprueba la propuesta y asigna su director y evaluador.</p></div><span class="admin-list-count"><c:out value="${fn:length(pendingStudentProposals.rows)}" /> pendientes</span></div>
           <c:choose>
             <c:when test="${empty pendingStudentProposals.rows}"><div class="admin-empty-state"><strong>No hay propuestas estudiantiles pendientes.</strong><span>Cuando un estudiante envíe una idea propia, aparecerá aquí.</span></div></c:when>
             <c:otherwise><div class="coordinator-list">
@@ -637,9 +744,12 @@
                     <c:when test="${proposal.etapa eq 'pago'}">
                       <form class="coordinator-review-form" action="${reviewUrl}?view=estudiantes" method="post">
                         <input type="hidden" name="csrfToken" value="<c:out value='${sessionScope.csrfToken}' />"><input type="hidden" name="action" value="reviewIdeaRequest"><input type="hidden" name="requestId" value="<c:out value='${proposal.solicitud_id}' />">
-                        <label class="admin-field coordinator-director-field" for="proposal-evaluator-${proposal.solicitud_id}"><span>Docente evaluador <i>* al verificar</i></span><select id="proposal-evaluator-${proposal.solicitud_id}" name="evaluatorId" required><option value="">Selecciona un evaluador</option><c:forEach var="teacher" items="${activeTeachers.rows}"><c:if test="${teacher.id ne proposal.director_id}"><option value="<c:out value='${teacher.id}' />"><c:if test="${teacher.id eq proposal.evaluador_asignado}">selected</c:if><c:out value="${teacher.nombre_completo}" /></option></c:if></c:forEach></select><small>Al verificar el pago, la propuesta pasará a revisión académica.</small></label>
+                        <c:if test="${proposal.estado_solicitud eq 'pendiente'}">
+                          <label class="admin-field coordinator-director-field" for="proposal-director-${proposal.solicitud_id}"><span>Docente director <i>*</i></span><select id="proposal-director-${proposal.solicitud_id}" name="directorId" required><option value="">Selecciona un director</option><c:forEach var="teacher" items="${activeTeachers.rows}"><option value="<c:out value='${teacher.id}' />"><c:if test="${teacher.id eq proposal.director_id}">selected</c:if><c:out value="${teacher.nombre_completo}" /></option></c:forEach></select></label>
+                        </c:if>
+                        <label class="admin-field coordinator-director-field" for="proposal-evaluator-${proposal.solicitud_id}"><span>Docente evaluador <i>* al aprobar</i></span><small><c:choose><c:when test="${proposal.estado_solicitud eq 'pendiente'}">Debe ser diferente del director. Al aprobar, se verificará el pago y se asignarán ambos docentes.</c:when><c:otherwise>El comprobante se verificará y la propuesta cancelada seguirá disponible para revisión.</c:otherwise></c:choose></small><select id="proposal-evaluator-${proposal.solicitud_id}" name="evaluatorId" required><option value="">Selecciona un evaluador</option><c:forEach var="teacher" items="${activeTeachers.rows}"><c:if test="${teacher.id ne proposal.director_id}"><option value="<c:out value='${teacher.id}' />"><c:if test="${teacher.id eq proposal.evaluador_asignado}">selected</c:if><c:out value="${teacher.nombre_completo}" /></option></c:if></c:forEach></select></label>
                         <label class="admin-field" for="proposal-payment-observations-${proposal.solicitud_id}"><span>Respuesta / motivo <i>* al rechazar</i></span><textarea id="proposal-payment-observations-${proposal.solicitud_id}" name="observations" maxlength="1200" rows="3" placeholder="Si rechazas, indica qué debe corregir el estudiante"></textarea></label>
-                        <div class="coordinator-review-actions"><button class="button button-primary" type="submit" name="decision" value="aprobada">Verificar pago</button><button class="button coordinator-reject-button" type="submit" name="decision" value="rechazada" formnovalidate><c:choose><c:when test="${proposal.estado_solicitud eq 'retirada'}">Rechazar comprobante</c:when><c:otherwise>Rechazar y pedir corrección</c:otherwise></c:choose></button></div>
+                        <div class="coordinator-review-actions"><button class="button button-primary" type="submit" name="decision" value="aprobada"><c:choose><c:when test="${proposal.estado_solicitud eq 'pendiente'}">Verificar pago y aprobar propuesta</c:when><c:otherwise>Verificar pago</c:otherwise></c:choose></button><button class="button coordinator-reject-button" type="submit" name="decision" value="rechazada" formnovalidate><c:choose><c:when test="${proposal.estado_solicitud eq 'retirada'}">Rechazar comprobante</c:when><c:otherwise>Rechazar y pedir corrección</c:otherwise></c:choose></button></div>
                       </form>
                     </c:when>
                     <c:otherwise>

@@ -22,4 +22,4 @@ Las bibliotecas JSTL y MySQL Connector/J usadas por la aplicación están en `WE
 
 ## Directorio de usuarios
 
-El directorio requiere una sesión de administrador y no muestra contraseñas. Los datos personales de usuarios no deben exponerse públicamente.
+El directorio de usuarios es accesible sin iniciar sesión y muestra nombre, correo, rol y, para estudiantes, el código estudiantil. No muestra contraseñas.

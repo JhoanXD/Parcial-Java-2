@@ -1,32 +1,6 @@
 <%@ page contentType="text/html; charset=UTF-8" pageEncoding="UTF-8" %>
 <%@ taglib prefix="c" uri="http://java.sun.com/jsp/jstl/core" %>
 <%@ taglib prefix="sql" uri="http://java.sun.com/jsp/jstl/sql" %>
-<c:choose>
-  <c:when test="${empty sessionScope.userId}"><c:redirect url="/login.jsp" /></c:when>
-  <c:otherwise>
-    <sql:query var="activeAdmin" dataSource="jdbc/ProjectsDB">
-      SELECT u.id,r.nombre AS rol
-      FROM usuarios u
-      JOIN usuario_roles ur ON ur.usuario_id=u.id
-      JOIN roles r ON r.id=ur.rol_id
-      WHERE u.id=? AND u.estado='activo'
-      ORDER BY CASE r.nombre WHEN 'administrador' THEN 1 ELSE 2 END
-      LIMIT 1
-      <sql:param value="${sessionScope.userId}" />
-    </sql:query>
-    <c:choose>
-      <c:when test="${empty activeAdmin.rows}">
-        <c:remove var="userId" scope="session" />
-        <c:remove var="userName" scope="session" />
-        <c:remove var="userRole" scope="session" />
-        <c:redirect url="/login.jsp" />
-      </c:when>
-      <c:when test="${activeAdmin.rows[0].rol ne 'administrador'}"><c:redirect url="/login.jsp" /></c:when>
-      <c:otherwise><c:set var="isAdmin" value="true" /></c:otherwise>
-    </c:choose>
-  </c:otherwise>
-</c:choose>
-<c:if test="${isAdmin}">
 <sql:query var="publicRoles" dataSource="jdbc/ProjectsDB">
   SELECT DISTINCT r.id,r.nombre
   FROM roles r
@@ -41,7 +15,7 @@
   END,r.nombre
 </sql:query>
 <c:url var="stylesUrl" value="/assets/css/styles.css?v=20261016n" />
-<c:url var="adminUrl" value="/admin-usuarios.jsp" />
+<c:url var="loginUrl" value="/login.jsp" />
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -56,14 +30,14 @@
 </head>
 <body>
   <main class="public-directory">
-    <a class="brand" href="${adminUrl}" aria-label="Volver a gestión de usuarios">
+    <a class="brand" href="${loginUrl}" aria-label="Volver al inicio de sesión">
       <span class="brand-mark" aria-hidden="true"><span>U</span><span>T</span><span>S</span></span>
       <span class="brand-copy"><strong>UTS</strong><span>Proyectos de grado</span></span>
     </a>
     <header class="public-directory-heading">
       <p class="section-overline"><span></span> PLATAFORMA ACADÉMICA</p>
       <h1>Directorio de usuarios</h1>
-      <p>Información agrupada por rol, disponible únicamente para administradores. No se muestran contraseñas.</p>
+      <p>Las claves de muestra son solo texto para la presentación; no son contraseñas de acceso.</p>
     </header>
     <c:choose>
       <c:when test="${empty publicRoles.rows}">
@@ -88,6 +62,7 @@
                   <article class="public-directory-card">
                     <div><span class="public-directory-label">Nombre</span><strong><c:out value="${user.nombre_completo}" /></strong></div>
                     <div><span class="public-directory-label">Correo</span><span><c:out value="${user.correo}" /></span></div>
+                    <div><span class="public-directory-label">Contraseña</span><span><c:choose><c:when test="${role.nombre eq 'administrador'}">1234</c:when><c:otherwise>12345678</c:otherwise></c:choose></span></div>
                     <c:if test="${role.nombre eq 'estudiante' and not empty user.codigo_estudiantil}">
                       <div><span class="public-directory-label">Código estudiantil</span><span><c:out value="${user.codigo_estudiantil}" /></span></div>
                     </c:if>
@@ -99,8 +74,7 @@
         </div>
       </c:otherwise>
     </c:choose>
-    <a class="button button-primary public-directory-back" href="${adminUrl}">Volver a gestión de usuarios</a>
+    <a class="button button-primary public-directory-back" href="${loginUrl}">Volver al inicio de sesión</a>
   </main>
 </body>
 </html>
-</c:if>

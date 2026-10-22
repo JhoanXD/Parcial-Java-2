@@ -54,7 +54,10 @@
           <c:set var="userRole" value="${loginResult.rows[0].rol}" scope="session" />
           <sql:query var="newCsrf" dataSource="jdbc/ProjectsDB">SELECT LOWER(SHA2(CONCAT(UUID(), RAND(), UUID(), NOW(6)), 256)) AS token</sql:query>
           <c:set var="csrfToken" value="${newCsrf.rows[0].token}" scope="session" />
-          <c:redirect url="/admin-usuarios.jsp" />
+          <c:choose>
+            <c:when test="${param.returnTo eq 'users'}"><c:redirect url="/usuarios-publicos.jsp" /></c:when>
+            <c:otherwise><c:redirect url="/admin-usuarios.jsp" /></c:otherwise>
+          </c:choose>
         </c:when>
         <c:when test="${not empty loginResult.rows and loginResult.rows[0].rol eq 'coordinador'}">
           <c:set var="userId" value="${loginResult.rows[0].id}" scope="session" />
@@ -93,6 +96,7 @@
 <c:url var="stylesUrl" value="/assets/css/styles.css?v=20261016n" />
 <c:url var="homeUrl" value="/index.jsp" />
 <c:url var="loginUrl" value="/login.jsp" />
+<c:url var="publicUsersUrl" value="/usuarios-publicos.jsp" />
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -120,6 +124,7 @@
 
         <form class="login-form" action="${loginUrl}" method="post">
           <input type="hidden" name="csrfToken" value="<c:out value='${sessionScope.csrfToken}' />">
+          <c:if test="${param.returnTo eq 'users'}"><input type="hidden" name="returnTo" value="users"></c:if>
           <label for="email">Correo institucional</label>
           <div class="input-wrap">
             <svg class="field-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5" stroke="currentColor" stroke-width="1.7"/><path d="m5 7 7 5.5L19 7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -138,6 +143,7 @@
           <button class="button button-primary login-submit" type="submit">Continuar al inicio <span aria-hidden="true">→</span></button>
           <p class="login-hint">¿Aún no tienes cuenta? Contacta al administrador</p>
         </form>
+        <a class="button login-directory-link" href="${publicUsersUrl}">Consultar directorio de usuarios</a>
         <c:if test="${not empty loginError}">
           <p class="login-error" role="alert"><c:out value="${loginError}" /></p>
         </c:if>

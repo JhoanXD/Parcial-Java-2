@@ -28,20 +28,19 @@
 <c:if test="${pageContext.request.method eq 'POST'}">
   <c:choose>
     <c:when test="${empty sessionScope.csrfToken or empty param.csrfToken or sessionScope.csrfToken ne param.csrfToken}"><c:set var="flashError" value="El formulario expiró. Recarga la página e inténtalo de nuevo." scope="session" /></c:when>
-    <c:when test="${empty fn:trim(param.title) or fn:length(param.title) gt 180 or empty fn:trim(param.description) or fn:length(param.description) gt 3000 or fn:length(fn:trim(param.driveUrl)) gt 500 or (not fn:startsWith(fn:toLowerCase(fn:trim(param.driveUrl)),'https://drive.google.com/') and not fn:startsWith(fn:toLowerCase(fn:trim(param.driveUrl)),'https://docs.google.com/'))}">
-      <c:set var="flashError" value="Completa el título y la descripción, y pega un enlace compartible de Google Drive o Google Docs." scope="session" />
+    <c:when test="${empty fn:trim(param.description) or fn:length(param.description) gt 3000 or fn:length(fn:trim(param.driveUrl)) gt 500 or (not fn:startsWith(fn:toLowerCase(fn:trim(param.driveUrl)),'https://drive.google.com/') and not fn:startsWith(fn:toLowerCase(fn:trim(param.driveUrl)),'https://docs.google.com/'))}">
+      <c:set var="flashError" value="Completa la descripción y pega un enlace compartible de Google Drive o Google Docs." scope="session" />
     </c:when>
     <c:when test="${param.action eq 'submitFinalProject'}">
       <c:catch var="finalProjectSubmitFailure">
         <sql:update var="createdFinalProject" dataSource="jdbc/ProjectsDB">
           INSERT INTO proyectos_finales (anteproyecto_id,titulo,descripcion,enlace_drive)
-          SELECT ap.id,?,?,?
+          SELECT ap.id,ap.titulo,?,?
           FROM anteproyectos ap
           JOIN solicitudes_ideas s ON s.idea_id=ap.idea_id AND s.estudiante_id=ap.estudiante_id AND s.estado='aprobada'
           JOIN ideas i ON i.id=ap.idea_id AND i.estado='aprobada' AND i.seleccionada_por=ap.estudiante_id
           JOIN usuarios u ON u.id=ap.estudiante_id AND u.estado='activo'
           WHERE ap.id=? AND ap.estudiante_id=? AND ap.estado='aprobado'
-          <sql:param value="${fn:trim(param.title)}" />
           <sql:param value="${fn:trim(param.description)}" />
           <sql:param value="${fn:trim(param.driveUrl)}" />
           <sql:param value="${param.anteproyectoId}" />
@@ -75,11 +74,10 @@
             <sql:update var="updatedFinalProject">
               UPDATE proyectos_finales pf
               JOIN anteproyectos ap ON ap.id=pf.anteproyecto_id
-              SET pf.titulo=?,pf.descripcion=?,pf.enlace_drive=?,
+              SET pf.descripcion=?,pf.enlace_drive=?,
                 pf.estado='pendiente_director',
                 pf.enviado_en=NOW(),pf.revisado_en=NULL
               WHERE pf.id=? AND pf.estado='aplazado' AND ap.estudiante_id=? AND ap.estado='aprobado'
-              <sql:param value="${fn:trim(param.title)}" />
               <sql:param value="${fn:trim(param.description)}" />
               <sql:param value="${fn:trim(param.driveUrl)}" />
               <sql:param value="${param.finalProjectId}" />
@@ -98,14 +96,13 @@
       <c:catch var="submitFailure">
         <sql:update var="createdSubmission" dataSource="jdbc/ProjectsDB">
           INSERT INTO anteproyectos (idea_id,estudiante_id,director_id,titulo,descripcion,enlace_drive)
-          SELECT i.id,?,d.director_id,?,?,?
+          SELECT i.id,?,d.director_id,i.titulo,?,?
           FROM ideas i JOIN direcciones_ideas d ON d.idea_id=i.id
           JOIN estudiantes e ON e.usuario_id=?
           JOIN solicitudes_ideas s ON s.idea_id=i.id AND s.estudiante_id=e.usuario_id AND s.estado='aprobada'
           WHERE i.id=? AND i.estado='aprobada' AND i.programa_id=e.programa_id AND i.seleccionada_por=e.usuario_id
             AND EXISTS (SELECT 1 FROM usuarios u WHERE u.id=e.usuario_id AND u.estado='activo')
           <sql:param value="${sessionScope.userId}" />
-          <sql:param value="${fn:trim(param.title)}" />
           <sql:param value="${fn:trim(param.description)}" />
           <sql:param value="${fn:trim(param.driveUrl)}" />
           <sql:param value="${sessionScope.userId}" />
@@ -122,9 +119,8 @@
       <c:catch var="resubmitFailure">
         <sql:update var="updatedSubmission" dataSource="jdbc/ProjectsDB">
           UPDATE anteproyectos
-          SET titulo=?,descripcion=?,enlace_drive=?,estado='pendiente_revision',enviado_en=NOW(),revisado_en=NULL
+          SET descripcion=?,enlace_drive=?,estado='pendiente_revision',enviado_en=NOW(),revisado_en=NULL
           WHERE id=? AND estudiante_id=? AND estado='aplazado'
-          <sql:param value="${fn:trim(param.title)}" />
           <sql:param value="${fn:trim(param.description)}" />
           <sql:param value="${fn:trim(param.driveUrl)}" />
           <sql:param value="${param.anteproyectoId}" />
@@ -279,11 +275,10 @@
         </c:if>
         <c:if test="${not empty eligibleIdeas.rows}">
           <section class="admin-create-card anteproject-submit-card" aria-labelledby="submitAnteprojectTitle">
-            <div class="admin-card-heading"><span class="admin-card-icon" aria-hidden="true">+</span><div><h2 id="submitAnteprojectTitle">Enviar un anteproyecto</h2><p>Selecciona una idea aprobada de tu programa. El director es el asignado por coordinación.</p></div></div>
+            <div class="admin-card-heading"><span class="admin-card-icon" aria-hidden="true">+</span><div><h2 id="submitAnteprojectTitle">Enviar un anteproyecto</h2><p>Selecciona una idea aprobada de tu programa. El título se toma de la idea y el director es el asignado por coordinación.</p></div></div>
             <form class="teacher-idea-form" action="${anteproyectoUrl}" method="post">
               <input type="hidden" name="csrfToken" value="<c:out value='${sessionScope.csrfToken}' />"><input type="hidden" name="action" value="submit">
               <label class="admin-field teacher-field-wide"><span>Idea aprobada <i>*</i></span><select name="ideaId" required><option value="">Selecciona una idea aprobada</option><c:forEach var="idea" items="${eligibleIdeas.rows}"><option value="<c:out value='${idea.id}' />"><c:out value="${idea.titulo}" /> — Director: <c:out value="${idea.director}" /></option></c:forEach></select></label>
-              <label class="admin-field teacher-field-wide"><span>Título del anteproyecto <i>*</i></span><input name="title" maxlength="180" required></label>
               <label class="admin-field teacher-field-wide"><span>Descripción breve <i>*</i></span><textarea name="description" maxlength="3000" rows="4" required></textarea></label>
               <label class="admin-field teacher-field-wide"><span>Enlace de Google Drive o Google Docs <i>*</i></span><input name="driveUrl" type="url" maxlength="500" placeholder="https://drive.google.com/..." required><small>Configura el archivo como “Cualquier persona con el enlace puede ver”.</small></label>
               <div class="teacher-idea-submit"><button class="button button-primary" type="submit">Enviar al director <span aria-hidden="true">→</span></button></div>
@@ -334,11 +329,10 @@
                     <c:if test="${submission.estado eq 'aprobado' and empty submission.proyecto_final_id and submission.lider_id eq sessionScope.userId}">
                       <section class="coordinator-idea-description">
                         <h3>Fase 4 · Enviar proyecto final</h3>
-                        <p>El anteproyecto fue aprobado. Comparte el proyecto completo mediante un enlace de Google Drive para enviarlo a revisión del director.</p>
+                        <p>El título se conserva del anteproyecto aprobado. Comparte la descripción y el enlace del proyecto completo para enviarlo a revisión del director.</p>
                       </section>
                       <form class="teacher-idea-form final-project-submit-form" action="${anteproyectoUrl}" method="post">
                         <input type="hidden" name="csrfToken" value="<c:out value='${sessionScope.csrfToken}' />"><input type="hidden" name="action" value="submitFinalProject"><input type="hidden" name="anteproyectoId" value="<c:out value='${submission.id}' />">
-                        <label class="admin-field teacher-field-wide"><span>Título del proyecto final <i>*</i></span><input name="title" maxlength="180" required></label>
                         <label class="admin-field teacher-field-wide"><span>Descripción del proyecto <i>*</i></span><textarea name="description" maxlength="3000" rows="4" required></textarea></label>
                         <label class="admin-field teacher-field-wide"><span>Enlace al proyecto completo en Google Drive o Docs <i>*</i></span><input name="driveUrl" type="url" maxlength="500" placeholder="https://drive.google.com/..." required><small>Configura el acceso para que el director y el evaluador puedan consultarlo.</small></label>
                         <div class="teacher-idea-submit"><button class="button button-primary" type="submit">Enviar proyecto al director <span aria-hidden="true">→</span></button></div>
@@ -360,7 +354,6 @@
                         <form class="teacher-idea-form anteproject-resubmit-form" action="${anteproyectoUrl}" method="post">
                           <input type="hidden" name="csrfToken" value="<c:out value='${sessionScope.csrfToken}' />"><input type="hidden" name="action" value="resubmitFinalProject"><input type="hidden" name="finalProjectId" value="<c:out value='${submission.proyecto_final_id}' />">
                           <h3>Corregir y reenviar el proyecto final</h3>
-                          <label class="admin-field teacher-field-wide"><span>Título actualizado <i>*</i></span><input name="title" maxlength="180" value="<c:out value='${submission.proyecto_final_titulo}' />" required></label>
                           <label class="admin-field teacher-field-wide"><span>Descripción actualizada <i>*</i></span><textarea name="description" maxlength="3000" rows="3" required><c:out value="${submission.proyecto_final_descripcion}" /></textarea></label>
                           <label class="admin-field teacher-field-wide"><span>Nuevo enlace de Google Drive o Docs <i>*</i></span><input name="driveUrl" type="url" maxlength="500" placeholder="https://drive.google.com/..." required></label>
                           <div class="teacher-idea-submit"><button class="button button-primary" type="submit">Reenviar proyecto corregido <span aria-hidden="true">→</span></button></div>
@@ -374,7 +367,6 @@
                       <form class="teacher-idea-form anteproject-resubmit-form" action="${anteproyectoUrl}" method="post">
                         <input type="hidden" name="csrfToken" value="<c:out value='${sessionScope.csrfToken}' />"><input type="hidden" name="action" value="resubmit"><input type="hidden" name="anteproyectoId" value="<c:out value='${submission.id}' />">
                         <h3>Corregir y reenviar al mismo director</h3>
-                        <label class="admin-field teacher-field-wide"><span>Título actualizado <i>*</i></span><input name="title" maxlength="180" value="<c:out value='${submission.titulo}' />" required></label>
                         <label class="admin-field teacher-field-wide"><span>Descripción actualizada <i>*</i></span><textarea name="description" maxlength="3000" rows="3" required><c:out value="${submission.descripcion}" /></textarea></label>
                         <label class="admin-field teacher-field-wide"><span>Nuevo enlace de Google Drive o Docs <i>*</i></span><input name="driveUrl" type="url" maxlength="500" placeholder="https://drive.google.com/..." required></label>
                         <div class="teacher-idea-submit"><button class="button button-primary" type="submit">Reenviar para revisión <span aria-hidden="true">→</span></button></div>
