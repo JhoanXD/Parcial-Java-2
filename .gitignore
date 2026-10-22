@@ -1,0 +1,11 @@
+# Local Tomcat database credentials
+/META-INF/context.xml
+
+# IDE and build output
+/.idea/
+/.vscode/
+/target/
+/build/
+/out/
+*.class
+*.log
